@@ -1,70 +1,125 @@
-# Getting Started with Create React App
+# ESP32 IoT Dashboard (Frontend) + Render Backend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This setup gives you a secure flow:
 
-## Available Scripts
+- ESP32 -> Render backend -> Firestore (sensor writes)
+- React frontend (authenticated user) -> Render backend -> Firestore (LED control)
+- React frontend reads Firestore for live dashboard updates
+- ESP32 reads LED state from Render backend
 
-In the project directory, you can run:
+## Architecture
 
-### `npm start`
+```text
+ESP32 --(device token)--> Render Backend --(Admin SDK)--> Firestore
+Frontend --(Firebase Auth ID token)--> Render Backend --(Admin SDK)--> Firestore
+Frontend <--(onSnapshot)-- Firestore
+ESP32 <--(device token)-- Render Backend <-- Firestore
+```
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## Frontend env (`.env`)
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+```env
+VITE_FIREBASE_API_KEY=YOUR_WEB_API_KEY
+VITE_FIREBASE_AUTH_DOMAIN=YOUR_PROJECT.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=YOUR_PROJECT_ID
+VITE_BACKEND_BASE_URL=https://your-render-service.onrender.com
+```
 
-### `npm test`
+## Firebase setup
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+1. Firebase Console -> Project Settings -> General -> Your apps -> Web app.
+2. Copy `apiKey`, `authDomain`, `projectId` into frontend `.env`.
+3. Firebase Console -> Authentication -> Sign-in method -> enable **Google**.
+4. Add your GitHub Pages domain to authorized domains in Firebase Auth.
 
-### `npm run build`
+## Firestore rules
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Use [`firestore.rules`](./firestore.rules) to block all direct client writes.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Apply rules:
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+1. Firebase Console -> Firestore Database -> Rules
+2. paste rules from `firestore.rules`
+3. publish
 
-### `npm run eject`
+## Collection tree
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```text
+sensorData/
+  latest
+    temperature: number
+    humidity: number
+    timestamp: number
+    source: "esp32"
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+sensorHistory/
+  slot_00 ... slot_24
+    temperature: number
+    humidity: number
+    timestamp: number
+    slot: number
+    source: "esp32"
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+deviceControl/
+  led
+    state: 0 | 1
+    updatedBy: string
+```
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## Frontend deploy (GitHub Pages)
 
-## Learn More
+A workflow already exists in `.github/workflows/deploy-pages.yml`.
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+1. GitHub repo -> Settings -> Pages -> Source = **GitHub Actions**
+2. Add repository secrets:
+   - `VITE_FIREBASE_API_KEY`
+   - `VITE_FIREBASE_AUTH_DOMAIN`
+   - `VITE_FIREBASE_PROJECT_ID`
+3. Push to `main`.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Backend repo (private) + Render deploy
 
-### Code Splitting
+Backend code is generated at:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+- `C:\PROJECTS\esp32-backend-render`
 
-### Analyzing the Bundle Size
+Create new private repo and push backend:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+```bash
+cd C:\PROJECTS\esp32-backend-render
+git init
+git add .
+git commit -m "Initial Render backend"
+git branch -M main
+git remote add origin https://github.com/<your-user>/<your-private-backend-repo>.git
+git push -u origin main
+```
 
-### Making a Progressive Web App
+Deploy on Render:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+1. Render -> New -> Web Service
+2. Connect private backend repo
+3. Build command: `npm ci`
+4. Start command: `npm start`
+5. Add env vars from backend `.env.example`
+6. Deploy and copy Render URL
 
-### Advanced Configuration
+## ESP32 firmware
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+Use `ESP32.ino` from this frontend repo root.
 
-### Deployment
+Set before upload:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+- `WIFI_SSID`
+- `WIFI_PASSWORD`
+- `BACKEND_BASE_URL`
+- `DEVICE_TOKEN` (must match backend env)
 
-### `npm run build` fails to minify
+Upload, then monitor serial output at 115200.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+## Security notes
+
+- Do not put Firebase Admin SDK JSON in frontend or firmware.
+- Keep backend repo private.
+- Rotate any exposed keys/tokens.
+- Firebase web `apiKey` is not a secret, but rules/auth still must be strict.

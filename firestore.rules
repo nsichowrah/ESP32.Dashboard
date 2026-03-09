@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /sensorData/latest {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /sensorHistory/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /deviceControl/led {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
